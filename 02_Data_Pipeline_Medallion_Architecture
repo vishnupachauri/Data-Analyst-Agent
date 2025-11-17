@@ -1,0 +1,200 @@
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC # 02_Data_Pipeline_Medallion_Architecture
+# MAGIC
+# MAGIC This notebook implements the Medallion Architecture (Bronze, Silver, Gold layers)
+# MAGIC for the `online_retail_sales.csv` dataset, exclusively using Unity Catalog Volumes for both
+# MAGIC input and output.
+# MAGIC
+# MAGIC It relies on variables passed from `01_Environment_Setup`.
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 2.1. Retrieve Global Variables
+# MAGIC
+# MAGIC Fetching variables set in the environment setup notebook.
+
+# COMMAND ----------
+
+import os
+import json
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, to_timestamp, expr, date_format
+from pyspark.sql.functions import coalesce, lit
+
+
+# Initialize Spark Session (only if not already running, for standalone testing)
+spark = SparkSession.builder.appName("LLMAgentDataAnalysis").getOrCreate()
+
+# Retrieve variables passed from the calling notebook
+try:
+    global_vars = json.loads(dbutils.notebook.run("01_Environment_Setup", 0))
+    HF_API_TOKEN = global_vars["HF_API_TOKEN"]
+    DATABRICKS_TOKEN = global_vars["DATABRICKS_TOKEN"]
+    DATABRICKS_HOST = global_vars["DATABRICKS_HOST"]
+    WAREHOUSE_ID = global_vars["WAREHOUSE_ID"]
+    INPUT_CSV_VOLUME_PATH = global_vars["INPUT_CSV_VOLUME_PATH"]
+    BRONZE_TABLE_VOLUME_PATH = global_vars["BRONZE_TABLE_VOLUME_PATH"]
+    SILVER_TABLE_VOLUME_PATH = global_vars["SILVER_TABLE_VOLUME_PATH"]
+    GOLD_TABLE_VOLUME_PATH = global_vars["GOLD_TABLE_VOLUME_PATH"]
+    CATALOG = global_vars["CATALOG"]
+    SCHEMA = global_vars["SCHEMA"]
+    print("Global variables retrieved successfully from 01_Environment_Setup.")
+except Exception as e:
+    print(f"Could not retrieve variables from previous notebook. Please run `01_Environment_Setup` first. Error: {e}")
+    print("Attempting to define variables for standalone execution (may require manual input).")
+    # Fallback definitions if run standalone (for development/testing)
+    HF_API_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+    DATABRICKS_TOKEN = os.getenv("DATABRICKS_TOKEN", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+    DATABRICKS_HOST = "https://xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.cloud.databricks.com" # REPLACE THIS
+    WAREHOUSE_ID = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" # REPLACE THIS
+    INPUT_CSV_VOLUME_PATH = "/Volumes/llm_data_analyst/default/inputdata/online_retail_sales.csv"
+    BRONZE_TABLE_VOLUME_PATH = "/Volumes/llm_data_analyst/default/output/retail_bronze"
+    SILVER_TABLE_VOLUME_PATH = "/Volumes/llm_data_analyst/default/output/retail_silver"
+    GOLD_TABLE_VOLUME_PATH = "/Volumes/llm_data_analyst/default/output/retail_gold_kpis"
+    CATALOG = "llm_data_analyst" # Fallback: Ensure this matches your UC catalog name
+    SCHEMA = "default" # Fallback: Ensure this matches your UC schema name
+
+# Ensure environment variable is set for LangChain
+os.environ["HUGGINGFACEHUB_API_TOKEN"] = HF_API_TOKEN
+
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 2.2. Ingestion into the Bronze Layer (Raw Data)
+
+# COMMAND ----------
+
+print(f"Attempting to load data from Volume: {INPUT_CSV_VOLUME_PATH}")
+try:
+    df_bronze = spark.read.format("csv") \
+        .option("header", "true") \
+        .option("inferSchema", "true") \
+        .load(INPUT_CSV_VOLUME_PATH)
+    print(f"Successfully loaded data from {INPUT_CSV_VOLUME_PATH}")
+except Exception as e:
+    raise Exception(f"Failed to load CSV from Volume path: {INPUT_CSV_VOLUME_PATH}. Please ensure the CSV is accessible and the path is correct. Error: {e}")
+
+# --- NEW ADDITION: Clean column names BEFORE saving to Bronze Delta table ---
+# This is crucial because Delta Lake (especially with Unity Catalog) has stricter naming conventions.
+# The original data likely has 'Customer ID' which is invalid.
+cleaned_columns = []
+for column in df_bronze.columns:
+    new_col_name = column.replace(" ", "_").replace("/", "_").replace("-", "_").lower()
+    cleaned_columns.append(new_col_name)
+df_bronze = df_bronze.toDF(*cleaned_columns)
+# Now explicitly rename 'customer_id' if it exists to match later code's expectation
+if "customer_id" in df_bronze.columns:
+    df_bronze = df_bronze.withColumnRenamed("customer_id", "customer_id") # self-rename to ensure consistency
+
+print("Bronze DataFrame columns after initial cleaning:")
+print(df_bronze.columns)
+
+
+# Save to Bronze layer as a Unity Catalog managed table.
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{SCHEMA}")
+df_bronze.write.format("delta").mode("overwrite").saveAsTable(f"{CATALOG}.{SCHEMA}.retail_bronze")
+print(f"Bronze table '{CATALOG}.{SCHEMA}.retail_bronze' created successfully.")
+print("Bronze table schema:")
+df_bronze.printSchema()
+print("Sample Bronze data:")
+df_bronze.limit(5).display()
+
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 2.3. Transformation to the Silver Layer (Cleansed & Conformed)
+
+# COMMAND ----------
+
+# Read from Bronze layer using UC table name, which points to the Volume path
+# In the Silver layer (2.3)
+
+# Read from Bronze layer
+df_silver = spark.read.format("delta").table(f"{CATALOG}.{SCHEMA}.retail_bronze")
+
+# Convert 'invoicedate' (which is correct based on Bronze schema)
+if "invoicedate" in df_silver.columns:
+    df_silver = df_silver.withColumn("invoicedate", to_timestamp(col("invoicedate"), "M/d/yyyy H:mm"))
+else:
+    print("Warning: 'invoicedate' column not found, skipping timestamp conversion for silver.")
+
+df_silver = df_silver.withColumn("totalamount", expr("quantity * price"))
+
+# IMPORTANT: Use 'invoice' for the cancellation filter, not 'invoiceno'
+if "invoice" in df_silver.columns: # Changed from "invoiceno" to "invoice"
+    df_silver = df_silver.filter(~col("invoice").startswith("c")) # Changed from "invoiceno" to "invoice"
+else:
+    print("Warning: 'invoice' column not found, skipping cancellation filter for silver.") # Changed warning
+
+# Mapping from initially cleaned names to desired silver names if specific overrides are needed
+column_mapping = {
+    "customer_id": "customer_id",
+    "invoice": "invoice_id",  # <--- CHANGE THIS: from "invoiceno" to "invoice"
+    "invoicedate": "invoice_date",
+    "stockcode": "stock_code",
+    "totalamount": "total_amount",
+}
+
+for old_name, new_name in column_mapping.items():
+    if old_name in df_silver.columns and old_name != new_name:
+        df_silver = df_silver.withColumnRenamed(old_name, new_name)
+
+# ... rest of your Silver layer code
+# In the Silver layer (2.3) after reading from Bronze
+
+# ... (previous silver layer code, including the invoicedate and invoice renaming fixes)
+
+
+# If customer_id is null, replace it with a placeholder like -1
+# You might want to cast it to integer after filling, if appropriate for your analysis
+df_silver = df_silver.withColumn("customer_id",
+                                 coalesce(col("customer_id"), lit(-1.0)).cast("long")) # Cast to long or int if applicable
+
+print("Silver table schema after transformations and renaming:")
+df_silver.printSchema()
+
+# Save to Silver layer as a Unity Catalog managed table
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{SCHEMA}")
+df_silver.write.format("delta").mode("overwrite").saveAsTable(f"{CATALOG}.{SCHEMA}.retail_silver")
+print(f"Silver table '{CATALOG}.{SCHEMA}.retail_silver' created successfully.")
+print("Silver table schema:")
+df_silver.printSchema()
+print("Sample Silver data:")
+df_silver.limit(5).display()
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 2.4. Aggregation into the Gold Layer (Business-Ready KPIs)
+
+# COMMAND ----------
+
+# Read from Silver layer using UC table name
+df_gold = spark.read.format("delta").table(f"{CATALOG}.{SCHEMA}.retail_silver")
+
+df_gold = df_gold.groupBy(
+   date_format(col("invoice_date"), "yyyy-MM").alias("sales_month"),
+   col("country"),
+   col("stock_code"),
+   col("description")
+).agg({
+   "quantity": "sum",
+   "total_amount": "sum",
+   "invoice_id": "count" # <--- This is correct
+}).withColumnRenamed("sum(quantity)", "total_quantity_sold") \
+.withColumnRenamed("sum(total_amount)", "total_sales_amount") \
+.withColumnRenamed("count(invoice_id)", "number_of_transactions") # <--- This is also correct
+# Save to Gold layer as a Unity Catalog managed table
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{SCHEMA}") # Ensure schema exists again for safety
+df_gold.write.format("delta").mode("overwrite").saveAsTable(f"{CATALOG}.{SCHEMA}.retail_gold_kpis")
+print(f"Gold table '{CATALOG}.{SCHEMA}.retail_gold_kpis' created successfully.")
+print("Gold table schema:")
+df_gold.printSchema()
+print("Sample Gold data:")
+df_gold.limit(5).display()
+
+# COMMAND ----------
+
+# Signal successful completion for orchestration
+dbutils.notebook.exit("Data pipeline completed successfully.")
