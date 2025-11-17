@@ -1,0 +1,54 @@
+import os
+import json
+from pyspark.sql import SparkSession
+
+
+spark = SparkSession.builder.appName("LLMAgentDataAnalysis").getOrCreate()
+
+INPUT_CSV_VOLUME_PATH = "/Volumes/llm_data_analyst/default/inputdata/online_retail_sales.csv"
+
+BRONZE_TABLE_VOLUME_PATH = "/Volumes/llm_data_analyst/default/output/retail_bronze"
+SILVER_TABLE_VOLUME_PATH = "/Volumes/llm_data_analyst/default/output/retail_silver"
+GOLD_TABLE_VOLUME_PATH = "/Volumes/llm_data_analyst/default/output/retail_gold_kpis"
+
+DATABRICKS_HOST = "https://dbc-2c4f7d9-f82a.cloud.databricks.com" 
+WAREHOUSE_ID = "002f3756c5f054c" 
+WAREHOUSE_HTTP_PATH = "/sql/1.0/warehouses/002f3756c5f054c" 
+
+
+CATALOG = "llm_data_analyst"
+SCHEMA = "default"
+
+
+HF_API_TOKEN = None
+DATABRICKS_TOKEN = None
+
+try:
+
+    HF_API_TOKEN = dbutils.secrets.get(scope="llm_agent_scope", key="hf_token")
+    DATABRICKS_TOKEN = dbutils.secrets.get(scope="llm_agent_scope", key="databricks_token")
+    os.environ["HUGGINGFACEHUB_API_TOKEN"] = HF_API_TOKEN 
+    print("API tokens retrieved successfully from Databricks Secrets.")
+except Exception as e:
+    print(f"Error retrieving secrets: {e}")
+    print("Please ensure 'llm_agent_scope' and keys 'hf_token', 'databricks_token' are configured in Databricks Secrets.")
+    print("WARNING: Using hardcoded tokens for demonstration. Configure Databricks Secrets for secure production use.")
+
+    HF_API_TOKEN = "xxxxxxxxxxxxxxxxxxxxxxxx" 
+    DATABRICKS_TOKEN = "xxxxxxxxxxxxxxxxxxxxxxxx" 
+    os.environ["HUGGINGFACEHUB_API_TOKEN"] = HF_API_TOKEN
+
+
+dbutils.notebook.exit(json.dumps({
+    "HF_API_TOKEN": HF_API_TOKEN,
+    "DATABRICKS_TOKEN": DATABRICKS_TOKEN,
+    "DATABRICKS_HOST": DATABRICKS_HOST,
+    "WAREHOUSE_ID": WAREHOUSE_ID,
+    "WAREHOUSE_HTTP_PATH": WAREHOUSE_HTTP_PATH,
+    "INPUT_CSV_VOLUME_PATH": INPUT_CSV_VOLUME_PATH,
+    "BRONZE_TABLE_VOLUME_PATH": BRONZE_TABLE_VOLUME_PATH,
+    "SILVER_TABLE_VOLUME_PATH": SILVER_TABLE_VOLUME_PATH,
+    "GOLD_TABLE_VOLUME_PATH": GOLD_TABLE_VOLUME_PATH,
+    "CATALOG": CATALOG,
+    "SCHEMA": SCHEMA
+}))
