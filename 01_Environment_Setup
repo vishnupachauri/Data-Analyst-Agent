@@ -11,9 +11,9 @@ BRONZE_TABLE_VOLUME_PATH = "/Volumes/llm_data_analyst/default/output/retail_bron
 SILVER_TABLE_VOLUME_PATH = "/Volumes/llm_data_analyst/default/output/retail_silver"
 GOLD_TABLE_VOLUME_PATH = "/Volumes/llm_data_analyst/default/output/retail_gold_kpis"
 
-DATABRICKS_HOST = "https://dbc-2c4f7d9-f82a.cloud.databricks.com" 
-WAREHOUSE_ID = "002f3756c5f054c" 
-WAREHOUSE_HTTP_PATH = "/sql/1.0/warehouses/002f3756c5f054c" 
+DATABRICKS_HOST = "https://xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.cloud.databricks.com" 
+WAREHOUSE_ID = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" 
+WAREHOUSE_HTTP_PATH = "/sql/1.0/warehouses/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" 
 
 
 CATALOG = "llm_data_analyst"
