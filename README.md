@@ -1,8 +1,7 @@
 # Data-Analyst-Agent
 This project builds an autonomous multi-agent system for conversational data analysis using Llama 3 within a Medallion Architecture. It validates user queries, generates SQL/Python insights, and delivers visualizations, enabling safe, accurate, and accessible analytics for all users.
 
------------------------------------------------------------------------------01_Environment_Setup -------------------------------------------------------------
-"""
+---------------------------------------01_Environment_Setup ---------------------------------------
 This script is designed to set up the environment for a data-analysis workflow using Spark, Databricks, Hugging Face, and Unity Catalog.
 It performs three major tasks:
 
@@ -47,10 +46,11 @@ dbutils.notebook.exit()
 to return a JSON object containing all the important configurations and tokens.
 
 This allows other notebooks or agents to use these values as input to continue the pipeline.
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+----------------------------------------------------------------------------------------------------
 
 
--------------------------------------------------------------------------02_Data_Pipeline_Medallion_Architecture ------------------------------------------------------------
+-----------------------02_Data_Pipeline_Medallion_Architecture ------------------------------
 
 This notebook processes your retail dataset using the Medallion Architecture, which has three layers: Bronze, Silver, and Gold. Each layer improves the quality and structure of the data.
 
@@ -119,7 +119,7 @@ At the end, the notebook sends a success message so that any workflow or orchest
 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-------------------------------------------------------------03_Multi_Agent_System_Definition----------------------------------------------------------------------------
+------------------------------03_Multi_Agent_System_Definition-----------------------------------
 
 
 This notebook defines and initializes a multi-agent system for data analysis using LLM (Llama 3) and Databricks SQL.
@@ -235,7 +235,7 @@ It ensures clean environment setup, secure variable handling, intelligent visual
 """
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-------------------------------------------------------------04_Main_Orchestrator_and_Testing----------------------------------------------------------------------------
+------------------------------04_Main_Orchestrator_and_Testing----------------------------------------
 
 
 This notebook is the main orchestrator for running the multi-agent data analysis system.
