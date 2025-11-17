@@ -1,292 +1,387 @@
-# Data-Analyst-Agent
-This project builds an autonomous multi-agent system for conversational data analysis using Llama 3 within a Medallion Architecture. It validates user queries, generates SQL/Python insights, and delivers visualizations, enabling safe, accurate, and accessible analytics for all users.
+📌 Data-Analyst-Agent — Project Overview
 
----------------------------------------01_Environment_Setup ---------------------------------------
-This script is designed to set up the environment for a data-analysis workflow using Spark, Databricks, Hugging Face, and Unity Catalog.
-It performs three major tasks:
+Data-Analyst-Agent is an autonomous, LLM-driven, multi-agent analytics system built on top of Llama 3, LangChain, Databricks SQL, and the Medallion Architecture (Bronze → Silver → Gold).
+It enables users to ask natural-language questions about sales data and receive accurate SQL-driven answers, enriched visualizations, and safe, validated responses.
 
-1. Initialize a Spark Session
+The system combines:
 
-The script starts a Spark application called “LLMAgentDataAnalysis”, which will be used to process and transform data.
+Intelligence Layer → LLM reasoning, query validation, multi-agent collaboration
 
-2. Define All Important Paths and Configurations
+Execution Layer → Text-to-SQL conversion, SQL querying, visualization
 
-It specifies:
+Data Foundation Layer → Clean data pipeline using Bronze/Silver/Gold Delta tables
 
-The input dataset location (a CSV file in Databricks Volumes).
+This layered design ensures trustworthiness, modularity, and end-to-end automation.
 
-The Bronze, Silver, and Gold table output paths for the Medallion architecture.
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-The Databricks connection details, such as host, warehouse ID, and SQL endpoint.
 
-The Unity Catalog catalog and schema where tables will be stored.
+📘 01_Environment_Setup — Environment Initialization
 
-This helps the rest of the pipeline know where data is coming from and where processed data should be saved.
+This script configures all essential resources required for the full AI data analysis system. It prepares Spark, Databricks, Hugging Face, the filesystem, and Unity Catalog paths.
 
-3. Retrieve API Tokens Securely
+It performs four major responsibilities:
 
-The code tries to fetch two secret tokens from Databricks Secrets:
+1. Spark Initialization
 
-Hugging Face API token
+Launches a Spark session called LLMAgentDataAnalysis.
 
-Databricks API token
+Spark will be responsible for reading the raw CSV file, applying transformations, and writing Bronze/Silver/Gold Delta tables.
 
-If the secrets are found, they are loaded securely into the environment.
+Why:
+Spark provides distributed processing, schema inference, and Delta Lake integration — essential for building a reliable data foundation.
 
-If not, the script falls back to hard-coded tokens (with a warning).
-This ensures the notebook still runs—even though it's insecure for production.
+2. Configuration of Paths and Data Locations
 
-4. Return All Configuration Values
+The script defines:
 
-At the end, the script uses:
+Input dataset path (raw CSV stored in Databricks Volumes)
+
+Output paths for:
+
+Bronze table — raw structured data
+
+Silver table — cleaned data
+
+Gold table — aggregated business KPIs
+
+Databricks SQL workspace details:
+
+Host URL
+
+SQL Warehouse ID
+
+HTTP path
+
+Unity Catalog catalog & schema used for table registration
+
+Why:
+A consistent configuration layer prevents hardcoding, simplifies orchestration, and ensures all downstream notebooks read from the same environment.
+
+3. Secure Retrieval of API Tokens
+
+Uses Databricks Secrets to load:
+
+Hugging Face API key (model access)
+
+Databricks personal access token (SQL warehouse authentication)
+
+If secrets are unavailable, the system loads safe fallback values exclusively for development/testing.
+
+Why:
+Secure credential management is mandatory for production systems to prevent key exposure and unauthorized access.
+
+4. Structured Output for Downstream Notebooks
+
+Before exiting, the script bundles all configuration values into a JSON object and returns it using:
 
 dbutils.notebook.exit()
 
 
-to return a JSON object containing all the important configurations and tokens.
+This JSON serves as the contract between setup and execution notebooks.
 
-This allows other notebooks or agents to use these values as input to continue the pipeline.
+Why:
+Databricks notebooks cannot pass Python objects directly — JSON ensures interoperability and modularization.
 
-----------------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
------------------------02_Data_Pipeline_Medallion_Architecture ------------------------------
+📘 02_Data_Pipeline_Medallion_Architecture — Complete ETL Pipeline
 
-This notebook processes your retail dataset using the Medallion Architecture, which has three layers: Bronze, Silver, and Gold. Each layer improves the quality and structure of the data.
+This notebook implements the full Medallion Architecture — a layered, scalable design for reliable data transformation.
+It turns raw CSV data into high-quality business KPIs.
 
-It uses the environment/settings provided by the previous notebook, 01_Environment_Setup.
+1. Importing Global Settings
 
-1. Retrieve Environment Variables
+Receives JSON returned by the setup notebook
 
-The notebook first loads all the important configuration values passed from the previous setup notebook (paths, catalog, schema, API keys, etc.).
-If the values cannot be retrieved, it sets fallback defaults so the notebook can still run.
+Extracts warehouse, dataset paths, catalog/schema, and token values
+
+If values are missing, safely assigns fallback defaults
+
+Benefit:
+Ensures all ETL steps synchronized with consistent configuration.
+
+2. Bronze Layer — Raw Ingestion & Standardization
+Operations:
+
+Load the raw CSV file from Databricks Volumes
+
+Apply column-name normalization:
+
+Spaces → underscores
+
+Lowercasing
+
+Removal of invalid characters
+
+Register the Bronze table as a Delta table using Unity Catalog
+
+Why:
+
+Bronze stores unaltered data, but with standardized schema
+
+Makes ingestion reproducible and queryable
+
+Ensures all transformations are traceable
+
+3. Silver Layer — Cleansed, Conformed, and Trusted
+Transformations include:
+
+Convert string timestamps into real timestamp type
+
+Calculate total_amount = quantity * price
+
+Remove cancelled transactions (invoice IDs beginning with “C”)
+
+Rename columns for consistency (e.g., invoice → invoice_id)
+
+Replace missing customer IDs with placeholder values
+
+Cast columns to correct data types
+
+Why:
+
+Ensures data correctness, consistency, and readiness for analytics
+
+Silver is your single source of truth for all KPI calculations
+
+The resulting Silver table is stored as a Delta table with improved schema.
+
+4. Gold Layer — Aggregated Business KPIs
+KPIs generated:
+
+Monthly sales period (YYYY-MM)
+
+Total quantity sold
+
+Total revenue
+
+Number of transactions
+
+Grouped by:
+
+Month
+
+Country
+
+Stock code
+
+Product description
+
+Why:
+
+Gold tables represent high-value analytics consumed by dashboards, BI tools, and LLM agents.
+
+5. Finalization
+
+Outputs a pipeline completion message for orchestration tools or workflow jobs.
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+📘 03_Multi_Agent_System_Definition — AI Agent Construction
+
+This notebook constructs the two-agent system that powers conversational analytics.
+
+🧩 Block 1: Imports & Environment Preparation
+
+Loads all supporting frameworks:
+
+LangChain (agent orchestration)
+
+Hugging Face Hub (LLM loading)
+
+Databricks SQL connector
+
+Spark
+
+Pandas, Matplotlib
+
+Logging
+
+Ensures SQL connector is installed and Spark is available.
+
+Role:
+Prepares the environment for LLM reasoning + SQL execution + visualization.
+
+🧩 Block 2: Load Configurations
+
+Extracts:
+
+API tokens
+
+SQL warehouse info
+
+Catalog and schema
+
+Model details
+
+Includes validation checks to ensure all required parameters are non-empty.
+
+Role:
+Ensures the system has all credentials and paths needed to interact with Databricks and Hugging Face.
+
+🧩 Block 3: Initialize Llama 3
+
+Loads Llama 3 (8B Instruct) with:
+
+Low temperature (0.1) for consistent, factual behavior
+
+Token limit optimized for short analytical answers
+
+Role:
+Primary reasoning engine for both agents.
+
+🧩 Block 4: Input Validator Agent
+
+A lightweight LLMChain trained to label each user query as:
+
+VALID → related to sales analysis
+
+INVALID → off-topic, unsafe, or irrelevant
+
+This prevents misuse and keeps the system domain-focused.
+
+🧩 Block 5: Databricks SQL Connection
+
+Creates an authenticated connection to the Databricks SQL Warehouse.
+
+Role:
+Allows the agent to run SQL queries on Bronze/Silver/Gold tables.
+
+🧩 Block 6: Visualization Tool
+
+A custom tool that:
+
+Converts SQL query output into a DataFrame
+
+Decides the best visualization type (line, bar, scatter)
+
+Generates charts using matplotlib
+
+Returns the chart as Base64-encoded HTML
+
+Role:
+Transforms raw data into visual insights, automatically.
+
+🧩 Block 7: SQL Toolkit + Memory
+
+Combines:
+
+SQL database
+
+SQL generator tools
+
+Visualization tool
+
+Conversation memory
+
+Role:
+Supports context-aware querying and follow-up questions.
+
+🧩 Block 8: Data Analyst Agent
+
+Uses LangChain’s create_sql_agent() to:
+
+Convert natural-language questions to SQL
+
+Execute SQL on Databricks
+
+Generate plots
+
+Produce analytical summaries
+
+Role:
+This is the main intelligence for answering the user’s analytical questions.
+
+🧩 Block 9: JSON Configuration Output
+
+Exports all rebuild parameters so the orchestrator notebook can reconstruct the agents.
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+📘 04_Main_Orchestrator_and_Testing — Full System Execution
+
+This notebook is the central execution hub.
+It rebuilds the agents and exposes one unified function to run the entire system.
+
+Block 1: Rebuild All Agents
+
+Calls:
+
+01_Environment_Setup → fetch environment variables
+
+03_Multi_Agent_System_Definition → fetch agent configuration
+
+Recreates:
+
+LLM (Llama 3)
+
+Validator Agent
+
+Data Analyst Agent
+
+SQL connection
+
+Visualization tool
+
+Toolkit + memory
 
 Purpose:
-Ensure every part of the pipeline uses the same consistent settings.
+Separates agent definition from agent execution, improving modularity and reproducibility.
 
-2. Bronze Layer – Raw Ingestion
+Block 2: run_multi_agent_system() Function
 
-The notebook:
+Steps:
 
-Reads the raw CSV file from a Unity Catalog Volume.
+Validator Agent checks if query is valid
 
-Cleans column names (spaces, symbols, uppercase → standardized format).
+If valid:
 
-Saves this unprocessed but standardized dataset as a Bronze Delta table.
+Send to Data Analyst Agent
 
-Purpose:
-Store the raw data in a stable, structured, and queryable format, but without modifying the actual values.
+Convert to SQL
 
-3. Silver Layer – Cleaned & Standardized Data
+Execute on Databricks
 
-From the Bronze table, the notebook:
+Generate plot if needed
 
-Converts the invoice date into a proper timestamp.
+Return results
 
-Calculates the total amount for each transaction.
+If invalid:
 
-Removes cancelled invoices (based on invoice IDs starting with “C”).
-
-Renames columns to consistent names.
-
-Fixes missing customer IDs by replacing null values with a placeholder.
-
-It then saves this transformed dataset as a Silver Delta table.
+Return a safe fallback message
 
 Purpose:
-Clean and standardize the data so it becomes reliable and ready for analytics.
+Provides a clean and controlled API for all user queries.
 
-4. Gold Layer – Business KPIs
+Block 3: Test Suite
 
-From the Silver table, the notebook computes:
+Includes:
 
-Monthly sales (year–month).
+Sales aggregations
 
-Total quantity sold.
+Top-selling products
 
-Total sales amount.
+Country comparisons
 
-Number of transactions.
+Monthly trend analysis
 
-It groups these metrics by month, country, product code, and description, and stores them in the Gold Delta table.
+Schema inspection
+
+Invalid/irrelevant queries
 
 Purpose:
-Produce a business-ready dataset containing key performance indicators that can be used for dashboards, reporting, or insights.
+Demonstrates complete workflow correctness — validation → SQL → visualization.
 
-5. Completion Signal
+Final Summary
 
-At the end, the notebook sends a success message so that any workflow or orchestration tool knows the pipeline ran successfully.
+The orchestrator ensures:
 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Clean reproduction of the multi-agent system
 
-------------------------------03_Multi_Agent_System_Definition-----------------------------------
+Consistent end-to-end query handling
 
+A modular architecture ready for deployment
 
-This notebook defines and initializes a multi-agent system for data analysis using LLM (Llama 3) and Databricks SQL.
-It mainly sets up two agents —
-(1) an Input Validator Agent that filters valid user queries, and
-(2) a Data Analyst Agent that performs Text-to-SQL and creates visualizations.
-Finally, it returns all configurations as JSON for use in the orchestrator notebook.”
-
-🧩 Block 1: Imports and Environment Setup
-
-“In the first part, we import all required libraries — like Spark, LangChain, HuggingFaceHub, pandas, matplotlib, and Databricks SQL connector.
-Then, we make sure that the Databricks SQL connector is installed and start a Spark session if not already running.
-Logging is also configured so that we can track each process step and error clearly.”
-
-🗣 Key point to mention:
-
-“This part ensures that the entire environment is ready for LLM + SQL + visualization work.”
-
-⚙️ Block 2: Retrieve Configuration Variables
-
-“This block retrieves global variables that were passed from the previous notebook, such as API tokens, Databricks host, warehouse ID, catalog, and schema.
-It uses dbutils.widgets to read a JSON string and then extracts and validates the required variables.”
-
-🗣 If asked why validation is needed:
-
-“We check that all critical parameters are not empty — because missing tokens or URLs would break our database connection.”
-
-🧠 If run locally, fallback values are provided using environment variables for development only.
-
-🤖 Block 3: Initialize the Large Language Model
-
-“Here, we initialize the LLM — Meta-Llama-3-8B-Instruct — from Hugging Face Hub.
-The temperature is kept low (0.1) for more factual, deterministic answers, and we limit the maximum tokens to 512 for efficiency.”
-
-🗣 Key point:
-
-“This is the main brain that both agents will use for understanding and reasoning.”
-
-🧠 Block 4: Input Validator Agent
-
-“This is the first agent. It uses a simple LLMChain with a prompt that checks if the user’s query is valid or invalid.
-A query is valid only if it asks something related to sales, products, or transactions — otherwise, it’s rejected.”
-
-🗣 Example to say:
-
-“For example, if someone says ‘Show me monthly sales by country,’ it’s VALID.
-But if they say ‘Hi, how are you?’ or something malicious, it’s INVALID.”
-
-✅ Purpose: Protects the system from irrelevant or risky inputs.
-
-🧱 Block 5: Databricks SQL Connection
-
-“This block connects the system to the Databricks SQL warehouse.
-We extract the hostname from the Databricks URL and then use SQLDatabase.from_databricks() to connect using catalog, schema, and tokens.”
-
-🗣 Explain simply:
-
-“This connection allows the agent to query real data stored in Databricks using SQL.”
-
-📊 Block 6: Python Visualization Tool
-
-“This is a custom LangChain tool that takes the SQL query output and creates a visualization.
-It tries to read the data as CSV, and if that fails, it tries a space-separated format using regex.”
-
-🗣 Explain logic:
-
-“Once the data is parsed into a DataFrame, it decides which chart to make automatically:
-
-Line chart for monthly sales
-
-Bar chart for top countries or products
-
-Scatter plot or generic bar chart for other cases.
-It then encodes the chart as a Base64 image and returns it as HTML so it can be displayed directly.”
-
-✅ Purpose: Converts raw query results into readable visual insights automatically.
-
-🧰 Block 7: SQL Toolkit and Memory Setup
-
-“Here, we combine the LLM with the SQLDatabase using LangChain’s SQLDatabaseToolkit.
-We add our visualization tool to it, and also use ConversationBufferMemory — so the agent remembers context between user queries.”
-
-🗣 Say:
-
-“This memory helps in follow-up questions like ‘now show me only the top 5.’”
-
-🧮 Block 8: Create the Data Analyst Agent
-
-“Now we create the main Data Analyst Agent using create_sql_agent().
-This agent uses the LLM, the SQL toolkit, and our custom visualization tool.
-It can automatically convert a natural language question into an SQL query, execute it on Databricks, and visualize the result.”
-
-🗣 In short:
-
-“This is the heart of the system — it performs text-to-SQL and visual analysis autonomously.”
-
-🧾 Block 9: Return JSON Configuration
-
-“Finally, the notebook doesn’t return Python objects directly — because Databricks notebooks can’t pass complex objects using dbutils.notebook.run().
-Instead, we prepare a JSON payload with all model and database configuration details.
-Then we exit using dbutils.notebook.exit() so the next notebook can rebuild the agents.”
-
-🗣 Summarize:
-
-“This makes our system modular — setup and orchestration are separate, which is good for scalability.”
-
-🧠 Final Summary to Say at End
-
-“So overall, this notebook sets up two agents —
-one for validation and another for analysis and visualization — both powered by Llama 3 and Databricks SQL.
-It ensures clean environment setup, secure variable handling, intelligent visualization, and easy integration with the orchestrator notebook."
-
-"""
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-------------------------------04_Main_Orchestrator_and_Testing----------------------------------------
-
-
-This notebook is the main orchestrator for running the multi-agent data analysis system.
-It re-initializes both agents from prior notebooks, exposes a single run function to process queries end-to-end, and includes test cases to demonstrate validation, SQL answering, and visualization.
-
-🧩 Block 1: Re-Initialization (Configs → Agents)
-“First, we call 01_Environment_Setup to fetch fresh config (tokens, hosts, warehouse info).
-Then we call 03_Multi_Agent_System_Definition, which returns a JSON payload with all rebuild parameters.
-Using this, we re-create:
-• the LLM (Llama-3 via HuggingFace)
-• the Input Validator Agent (VALID/INVALID gatekeeper)
-• the Databricks SQL connection (catalog, schema, warehouse)
-• the custom visualization tool
-• the SQL toolkit + memory
-• and the Data Analyst Agent (Text-to-SQL + tool-calling).”
-🗣 Key point to mention:
-“This notebook doesn’t redefine logic—it rebuilds the exact agents from configuration, ensuring reproducibility and clean separation of concerns.”
-⚙️ Block 2: Orchestrator Function (run_multi_agent_system)
-“This function accepts a user query and runs the full pipeline:
-
-
-Sends the query to the Validator Agent.
-
-
-If the result is VALID, invokes the Data Analyst Agent which executes SQL and (when appropriate) produces a visualization.
-
-
-Uses Databricks display to show rich outputs.
-If the query is INVALID, it returns a polite scope message.”
-
-
-🗣 Why this design?:
-“By centralizing validation and analysis in one call, the orchestrator delivers a consistent, controlled entry point for all queries.”
-🧪 Block 3: Test Cases (Demo Suite)
-“This section runs a variety of queries to showcase behavior:
-• Valid numeric aggregation: ‘total sales for 2011’
-• Valid categorical top-N: ‘top 5 most sold products’
-• Country breakdown: ‘sales amount per country’
-• Explicit visualization requests
-• Monthly trend plotting
-• Schema discovery (tables and schemas)
-• Off-topic / greetings to show rejections by the validator.”
-🗣 Key point:
-“These tests prove the entire flow—validate → analyze → visualize/display—and demonstrate both happy paths and guardrails.”
-
-🧠 If someone asks “what actually changes here vs the definition notebook?”
-“03_* defines the agents and returns a JSON contract; 04_* rebuilds those agents from that contract and runs them with real queries.”
-🗣 Example to say (for the function):
-“If a user asks, ‘Show me the total sales amount for each country, and visualize it,’ the orchestrator verifies it’s a valid retail query, then the analyst agent generates SQL, fetches results from Databricks, and triggers the visualization tool to return a plot embedded as HTML.”
-
-✅ Final Summary to Say at End
-“Overall, this orchestrator notebook reconstructs the agents from configuration, exposes a clean run function for end-to-end processing, and demonstrates the system through comprehensive test cases. It ensures modular architecture (definition vs execution), repeatability, and a clear user pathway from query validation to SQL analysis and visualization.”
-
-
+It is the user-facing entry point to the entire Data-Analyst-Agent platform.
